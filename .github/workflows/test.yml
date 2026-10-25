@@ -1,0 +1,27 @@
+name: Embedded quality gates
+on: [push, pull_request]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y cppcheck clang-tidy
+      - run: cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON && cmake --build build && ctest --test-dir build --output-on-failure
+      - run: cppcheck --enable=warning,performance --error-exitcode=1 firmware.c
+      - run: clang-tidy firmware.c -p build --warnings-as-errors='*'
+      - run: objcopy -O ihex build/firmware.elf build/firmware.hex
+      - run: test "$(stat -c%s build/firmware.elf)" -lt 65536
+      - run: docker build -t firmware-build .
+      - uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: firmware-build
+          severity: CRITICAL
+          exit-code: '1'
+          ignore-unfixed: true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware
+          path: |
+            build/firmware.elf
+            build/firmware.hex
+            build/firmware.map
